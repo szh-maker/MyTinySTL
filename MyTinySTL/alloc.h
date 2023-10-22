@@ -97,6 +97,49 @@ namespace mystl {
         q->next = my_free_list;
         my_free_list = q;
     }
+
+    // 重新分配空间，接受三个参数，参数一定为指向空间的指针，
+    // 参数二为原来的空间的大小，参数三为申请空间的大小
+    inline void* alloc::reallocate(void* p, size_t old_size, size_t new_size) {
+        deallocate(p, old_size);
+        p = allocate(new_size);
+        return p;
+    }
+
+    // bytes 对应上调大小
+    inline size_t alloc::M_align(size_t bytes) {
+        if(bytes <= 512) {
+            return bytes <= 256
+                ? bytes <= 128 ? EAlign128 : EAlign256
+                : EAlign512;
+        }
+        return bytes <= 2048
+            ? bytes <= 1024 ? EAlign1024 : EAlign2048
+            : EAlign4096;
+    }
+
+    // 将 bytes 上调至对应区间大小
+    inline size_t alloc::M_round_up(size_t bytes) {
+        return ((bytes + M_align(bytes) - 1) & ~(M_align(bytes) - 1));
+    }
+
+    // 根据区块大小，选择第 n 个 free lists
+    inline size_t alloc::M_freelist_index(size_t bytes) {
+        if(bytes <= 512) {
+            return bytes <= 256
+                ? bytes <= 128
+                    ? ((bytes + EAlign128 - 1) / EAlign128 - 1)
+                    : (15 + (bytes + EAlign256 - 129) / EAlign256)
+                : (23 + (bytes + EAlign512 - 257) / EAlign512);
+        }
+        return bytes <= 2048
+            ? bytes <= 1024
+                ? (31 + (bytes + EAlign1024 - 513) / EAlign1024)
+                : (39 + (bytes + EAlign2048 - 1025) / EAlign2048)
+            : (47 + (bytes + EAlign4096 - 2049) / EAlign4096);
+    }
+
+    // 重填 free list
 }
 
 
