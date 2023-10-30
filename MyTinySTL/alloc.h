@@ -140,7 +140,83 @@ namespace mystl {
     }
 
     // 重填 free list
-}
+    void* alloc::M_refill(size_t n) {
+        size_t nblock = 10;
+        char* c = M_chunk_alloc(n, nblock);
+        FreeList* my_free_list;
+        FreeList* result, *cur, *next;
+        // 如果只有一个区块，就把这个区块返回给调用者，free list 没有增加新的节点
+        if(nblock == 1) return c;
+        // 否则把区块给调用者，剩下的纳入 free list 作为新的节点
+        my_free_list = free_list[M_freelist_index(n)];
+        result = (FreeList*)c;
+        my_free_list = next = (FreeList*)(c + n);
+        for(size_t i = 1; ; ++i) {
+            cur = next;
+            next = (FreeList*)((char*)next + n);
+            if(nblock - 1 == i) {
+                cur->next = nullptr;
+                break;
+            } else {
+                cur->next = next;
+            }
+        }
+        return result;
+    }
+
+    // 从内存池中取空间 free list 使用，条件不允许时，会调整 nblock
+    char* alloc::M_chunk_alloc(size_t size, size_t& nblock) {
+        char* result;
+        size_t need_bytes = size * nblock;
+        size_t pool_bytes = end_free - start_free;
+
+        // 如果内存池剩余大小完全满足需求量，返回它
+        if(pool_bytes >= need_bytes) {
+            result = start_free;
+            start_free += need_bytes;
+            return result;
+        } else if(pool_bytes >= size) {
+            // 如果内存池剩余大小不能完全满足需求量，但至少可以分配一个或一个以上的区块，就返回它
+            nblock = pool_bytes / size;
+            need_bytes = size * nblock;
+            result = start_free;
+            start_free += need_bytes;
+            return result;
+        } else {
+            // 如果内存池剩余的大小连一个区块都无法满足
+            if(pool_bytes > 0) {
+                FreeList* my_free_list = free_list[M_freelist_index(pool_bytes)];
+                ((FreeList*)start_free)->next = my_free_list;
+                my_free_list = (FreeList*)start_free;
+            }
+            // 申请堆空间
+            size_t bytes_to_get = (need_bytes << 1) + M_round_up(heap_size >> 4);
+            start_free = (char*)std::malloc(bytes_to_get);
+            if(!start_free) {
+                // 堆空间也不够
+                FreeList* my_free_list, *p;
+                // 试着查找有无未用的区块，且区块足够大的 free list
+                for(size_t i = size; i <= ESmallObjectBytes; i += M_align(i)) {
+                    my_free_list = free_list[M_freelist_index(i)];
+                    p = my_free_list;
+                    if(p) {
+                        my_free_list = p->next;
+                        start_free = (char*)p;
+                        end_free = start_free + i;
+                        return M_chunk_alloc(size, nblock);
+                    }
+                }
+                std::printf("out of memory");
+                end_free = nullptr;
+                throw std::bad_alloc();
+            }
+            end_free = start_free + bytes_to_get;
+            heap_size += bytes_to_get;
+            return M_chunk_alloc(size, nblock);
+        }
+    }
+
+} // namespace mystl 
 
 
 #endif // MY_TINY_STL_H_
